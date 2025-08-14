@@ -10,7 +10,7 @@ import restaurantRoutes from './routes/restaurants.js';
 import foodListingRoutes from './routes/foodListings.js';
 import organizationRoutes from './routes/organizations.js';
 import foodClaimRoutes from './routes/foodClaims.js';
-
+import volunteerRoutes from './routes/volunteers.js';
 
 dotenv.config();
 
@@ -43,6 +43,10 @@ app.use('/api/organizations', organizationRoutes);
 
 // Food Claims routes
 app.use('/api/food-claims', foodClaimRoutes);
+
+// Volunteer routes
+app.use('/api/volunteers', volunteerRoutes);
+
 
 // Basic health check route
 app.get('/api/health', (req, res) => {
