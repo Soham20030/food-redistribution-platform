@@ -43,6 +43,16 @@ app.use('/api/volunteers', volunteerRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 
 // Basic health check route
+
+app.get('/', (req, res) => {
+  res.json({ 
+    message: '🍽️ FoodShare API is running!',
+    status: 'healthy',
+    timestamp: new Date().toISOString()
+  });
+});
+
+
 app.get('/api/health', (req, res) => {
     res.json({
         status: 'OK',
