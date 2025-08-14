@@ -8,7 +8,7 @@ import authRoutes from './routes/auth.js';
 import { authenticateToken, requireRole } from './middleware/auth.js'; 
 import restaurantRoutes from './routes/restaurants.js';
 import foodListingRoutes from './routes/foodListings.js';
-
+import organizationRoutes from './routes/organizations.js';
 
 dotenv.config();
 
@@ -35,6 +35,10 @@ app.use('/api/restaurants', restaurantRoutes);
 
 // Food Listing routes
 app.use('/api/food-listings', foodListingRoutes);
+
+// Food Organizations routes
+app.use('/api/organizations', organizationRoutes);
+
 
 // Basic health check route
 app.get('/api/health', (req, res) => {
