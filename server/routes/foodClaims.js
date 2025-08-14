@@ -2,6 +2,7 @@
 import express from 'express';
 import pool from '../config/database.js';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
+import { notifyFoodClaimed, notifyClaimStatusUpdate } from '../utils/emailService.js';
 
 const router = express.Router();
 
@@ -70,6 +71,9 @@ router.post('/', authenticateToken, requireRole(['organization']), async (req, r
             VALUES ($1, $2, $3, $4, $5)
             RETURNING *
         `, [food_listing_id, organization_id, claimed_quantity, pickup_scheduled_time, notes]);
+
+        // Send email notification to restaurant
+        await notifyFoodClaimed(claimResult.rows[0].id);
 
         // Get full claim details with related data
         const fullClaimResult = await pool.query(`
@@ -212,6 +216,9 @@ router.put('/:id/status', authenticateToken, requireRole(['restaurant', 'organiz
             WHERE id = $3
             RETURNING *
         `, [status, notes, id]);
+
+        // Send email notification for status update
+        await notifyClaimStatusUpdate(id, status, notes);
 
         // If claim is approved, update food listing status to claimed
         if (status === 'approved') {

@@ -11,6 +11,8 @@ import foodListingRoutes from './routes/foodListings.js';
 import organizationRoutes from './routes/organizations.js';
 import foodClaimRoutes from './routes/foodClaims.js';
 import volunteerRoutes from './routes/volunteers.js';
+import dashboardRoutes from './routes/dashboard.js';
+import { sendEmail } from './config/email.js';
 
 dotenv.config();
 
@@ -46,6 +48,9 @@ app.use('/api/food-claims', foodClaimRoutes);
 
 // Volunteer routes
 app.use('/api/volunteers', volunteerRoutes);
+
+// Dashboard routes
+app.use('/api/dashboard', dashboardRoutes);
 
 
 // Basic health check route

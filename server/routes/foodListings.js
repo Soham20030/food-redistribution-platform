@@ -80,27 +80,135 @@ router.get('/my-listings', authenticateToken, requireRole(['restaurant']), async
     }
 });
 
-// Get All Available Food Listings (Public - for organizations and volunteers)
+// Get All Available Food Listings with Search and Filtering (Public)
 router.get('/available', async (req, res) => {
     try {
-        const result = await pool.query(`
+        const {
+            search,          // Search in title, description, food_type
+            food_type,       // Filter by specific food type
+            min_quantity,    // Minimum quantity
+            max_quantity,    // Maximum quantity
+            latitude,        // User's latitude for distance filtering
+            longitude,       // User's longitude for distance filtering
+            max_distance,    // Maximum distance in km
+            sort_by          // Sort options: 'expiry', 'quantity', 'distance', 'created'
+        } = req.query;
+
+        let query = `
             SELECT fl.*, r.name as restaurant_name, r.address, r.latitude, r.longitude, r.phone,
                    u.first_name, u.last_name, u.email
+        `;
+
+        // Add distance calculation if location provided
+        if (latitude && longitude) {
+            query += `, 
+                (6371 * acos(cos(radians($1)) * cos(radians(r.latitude)) * 
+                cos(radians(r.longitude) - radians($2)) + 
+                sin(radians($1)) * sin(radians(r.latitude)))) AS distance
+            `;
+        }
+
+        query += `
             FROM food_listings fl
             JOIN restaurants r ON fl.restaurant_id = r.id
             JOIN users u ON r.user_id = u.id
             WHERE fl.status = 'available' 
             AND fl.expiry_date > NOW()
             AND fl.pickup_time_end > NOW()
-            ORDER BY fl.expiry_date ASC
-        `);
+        `;
+
+        const queryParams = [];
+        let paramCount = 0;
+
+        // Add location parameters if provided
+        if (latitude && longitude) {
+            queryParams.push(parseFloat(latitude), parseFloat(longitude));
+            paramCount = 2;
+        }
+
+        // Search filter
+        if (search) {
+            paramCount++;
+            query += ` AND (fl.title ILIKE $${paramCount} OR fl.description ILIKE $${paramCount} OR fl.food_type ILIKE $${paramCount})`;
+            queryParams.push(`%${search}%`);
+        }
+
+        // Food type filter
+        if (food_type) {
+            paramCount++;
+            query += ` AND fl.food_type ILIKE $${paramCount}`;
+            queryParams.push(`%${food_type}%`);
+        }
+
+        // Quantity filters
+        if (min_quantity) {
+            paramCount++;
+            query += ` AND fl.quantity >= $${paramCount}`;
+            queryParams.push(parseInt(min_quantity));
+        }
+
+        if (max_quantity) {
+            paramCount++;
+            query += ` AND fl.quantity <= $${paramCount}`;
+            queryParams.push(parseInt(max_quantity));
+        }
+
+        // Distance filter (only if location provided)
+        if (latitude && longitude && max_distance) {
+            query += ` HAVING distance <= ${parseFloat(max_distance)}`;
+        }
+
+        // Sorting
+        if (sort_by === 'expiry') {
+            query += ` ORDER BY fl.expiry_date ASC`;
+        } else if (sort_by === 'quantity') {
+            query += ` ORDER BY fl.quantity DESC`;
+        } else if (sort_by === 'distance' && latitude && longitude) {
+            query += ` ORDER BY distance ASC`;
+        } else {
+            query += ` ORDER BY fl.created_at DESC`; // Default sort
+        }
+
+        const result = await pool.query(query, queryParams);
 
         res.json({
-            listings: result.rows
+            listings: result.rows,
+            total: result.rows.length,
+            filters_applied: {
+                search: search || null,
+                food_type: food_type || null,
+                min_quantity: min_quantity || null,
+                max_quantity: max_quantity || null,
+                max_distance: max_distance || null,
+                sort_by: sort_by || 'created',
+                location_provided: !!(latitude && longitude)
+            }
         });
 
     } catch (error) {
-        console.error('Get available listings error:', error);
+        console.error('Get available listings with search error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Get available food types for filter dropdown (Public)
+router.get('/food-types', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT DISTINCT food_type 
+            FROM food_listings 
+            WHERE status = 'available' 
+            AND expiry_date > NOW()
+            AND pickup_time_end > NOW()
+            ORDER BY food_type ASC
+        `);
+
+        res.json({
+            food_types: result.rows.map(row => row.food_type)
+        });
+
+    } catch (error) {
+        console.error('Get food types error:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
