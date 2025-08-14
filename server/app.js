@@ -5,7 +5,8 @@ import helmet from 'helmet';
 import dotenv from 'dotenv';
 import pool from './config/database.js';
 import authRoutes from './routes/auth.js';
-
+import { authenticateToken, requireRole } from './middleware/auth.js'; 
+import restaurantRoutes from './routes/restaurants.js';
 dotenv.config();
 
 const app = express();
@@ -23,8 +24,11 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Routes
+// Authentication routes
 app.use('/api/auth', authRoutes);
+
+// Restaurants routes
+app.use('/api/restaurants', restaurantRoutes);
 
 // Basic health check route
 app.get('/api/health', (req, res) => {
@@ -51,6 +55,40 @@ app.get('/api/db-test', async (req, res) => {
             error: error.message
         });
     }
+});
+
+// ADD THESE PROTECTED TEST ROUTES:
+
+// Test protected route
+app.get('/api/protected', authenticateToken, (req, res) => {
+    res.json({
+        message: 'This is a protected route',
+        user: req.user
+    });
+});
+
+// Test role-based route (restaurants only)
+app.get('/api/restaurant-only', authenticateToken, requireRole(['restaurant']), (req, res) => {
+    res.json({
+        message: 'This endpoint is for restaurants only',
+        user: req.user
+    });
+});
+
+// Test route for organizations only
+app.get('/api/organization-only', authenticateToken, requireRole(['organization']), (req, res) => {
+    res.json({
+        message: 'This endpoint is for organizations only',
+        user: req.user
+    });
+});
+
+// Test route for multiple roles
+app.get('/api/restaurant-or-volunteer', authenticateToken, requireRole(['restaurant', 'volunteer']), (req, res) => {
+    res.json({
+        message: 'This endpoint is for restaurants and volunteers',
+        user: req.user
+    });
 });
 
 export default app;
