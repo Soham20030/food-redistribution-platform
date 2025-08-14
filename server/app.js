@@ -118,4 +118,30 @@ app.get('/api/restaurant-or-volunteer', authenticateToken, requireRole(['restaur
     });
 });
 
+// Add this AFTER all your routes, but BEFORE app.listen()
+app.use((err, req, res, next) => {
+  console.error('🚨 Unhandled Error Details:');
+  console.error('Message:', err.message);
+  console.error('Stack:', err.stack);
+  console.error('Request URL:', req.url);
+  console.error('Request Method:', req.method);
+  
+  res.status(500).json({ 
+    error: 'Internal Server Error', 
+    message: err.message,
+    // Only show stack trace in development
+    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+  });
+});
+
+// Also add this for unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('🚨 Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('🚨 Uncaught Exception:', error);
+});
+
+
 export default app;
