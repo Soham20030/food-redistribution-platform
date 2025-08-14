@@ -4,6 +4,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import pool from './config/database.js';
+import authRoutes from './routes/auth.js';
 
 dotenv.config();
 
@@ -21,6 +22,9 @@ app.use(cors({
 // Body parsing middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Routes
+app.use('/api/auth', authRoutes);
 
 // Basic health check route
 app.get('/api/health', (req, res) => {
