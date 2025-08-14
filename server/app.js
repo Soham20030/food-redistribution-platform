@@ -39,8 +39,7 @@ app.use(cors(corsOptions));
 
 
 // Handle preflight requests explicitly
-app.options('*', cors(corsOptions));
-
+app.options('/*path', cors(corsOptions));
 // Body parsing middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
