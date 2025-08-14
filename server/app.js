@@ -7,6 +7,9 @@ import pool from './config/database.js';
 import authRoutes from './routes/auth.js';
 import { authenticateToken, requireRole } from './middleware/auth.js'; 
 import restaurantRoutes from './routes/restaurants.js';
+import foodListingRoutes from './routes/foodListings.js';
+
+
 dotenv.config();
 
 const app = express();
@@ -29,6 +32,9 @@ app.use('/api/auth', authRoutes);
 
 // Restaurants routes
 app.use('/api/restaurants', restaurantRoutes);
+
+// Food Listing routes
+app.use('/api/food-listings', foodListingRoutes);
 
 // Basic health check route
 app.get('/api/health', (req, res) => {
