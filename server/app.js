@@ -20,21 +20,26 @@ const app = express();
 // Security middleware
 app.use(helmet());
 
-// Configure CORS to allow your Vercel frontend
+// Updated CORS configuration with your new Vercel URL
 const corsOptions = {
   origin: [
-    'https://food-redistribution-platform-50avusjt7-soham-kotkars-projects.vercel.app',
-    'https://food-redistribution-platform-aon50rgi0-soham-kotkars-projects.vercel.app',
+    'https://food-redistribution-platform-pi.vercel.app', // ← Add this new URL
+    'https://food-redistribution-platform-50avusjt7-soham-kotkars-projects.vercel.app', // Keep old one for backup
+    'https://food-redistribution-platform-ctxto75ux-soham-kotkars-projects.vercel.app', // Keep this one too
     'http://localhost:5173', // for local development
     'http://localhost:3000'  // for local development
   ],
   credentials: true, // Allow cookies/auth headers
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 };
 
 // Apply CORS middleware
 app.use(cors(corsOptions));
+
+
+// Handle preflight requests explicitly
+app.options('*', cors(corsOptions));
 
 // Body parsing middleware
 app.use(express.json());
