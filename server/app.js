@@ -20,14 +20,21 @@ const app = express();
 // Security middleware
 app.use(helmet());
 
-// CORS configuration - FIX: Add localhost:5173 for Vite
-app.use(cors({
-    origin: [
-        'http://localhost:3000',  // Create React App default
-        'http://localhost:5173'   // Vite default - ADD THIS LINE
-    ],
-    credentials: true
-}));
+// Configure CORS to allow your Vercel frontend
+const corsOptions = {
+  origin: [
+    'https://food-redistribution-platform-50avusjt7-soham-kotkars-projects.vercel.app',
+    'https://food-redistribution-platform-aon50rgi0-soham-kotkars-projects.vercel.app',
+    'http://localhost:5173', // for local development
+    'http://localhost:3000'  // for local development
+  ],
+  credentials: true, // Allow cookies/auth headers
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+};
+
+// Apply CORS middleware
+app.use(cors(corsOptions));
 
 // Body parsing middleware
 app.use(express.json());
