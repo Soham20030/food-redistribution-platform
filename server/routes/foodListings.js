@@ -297,6 +297,75 @@ router.put('/:id', authenticateToken, requireRole(['restaurant']), async (req, r
     }
 });
 
+// Get Restaurant's Own Food Listings (Restaurant users only)
+router.get('/my-listings', authenticateToken, requireRole(['restaurant']), async (req, res) => {
+    try {
+        const user_id = req.user.id;
+
+        const result = await pool.query(`
+            SELECT fl.*, r.name as restaurant_name,
+                   COUNT(fc.id) as total_claims,
+                   COUNT(fc.id) FILTER (WHERE fc.status = 'pending') as pending_claims,
+                   COUNT(fc.id) FILTER (WHERE fc.status = 'approved') as approved_claims
+            FROM food_listings fl
+            JOIN restaurants r ON fl.restaurant_id = r.id
+            LEFT JOIN food_claims fc ON fl.id = fc.food_listing_id
+            WHERE r.user_id = $1
+            AND fl.status IN ('available', 'claimed')  -- Only show active listings, not completed ones
+            GROUP BY fl.id, r.name
+            ORDER BY fl.created_at DESC
+        `, [user_id]);
+
+        res.json({
+            listings: result.rows
+        });
+
+    } catch (error) {
+        console.error('Get my listings error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Get Restaurant's Own Food Listings (Restaurant users only)
+router.get('/my-listings', authenticateToken, requireRole(['restaurant']), async (req, res) => {
+    try {
+        const user_id = req.user.id;
+        const { status } = req.query;
+
+        let statusFilter;
+        if (status === 'completed') {
+            statusFilter = "AND fl.status = 'completed'"; // Completed listings only
+        } else {
+            statusFilter = "AND fl.status IN ('available', 'claimed')"; // Active listings only (default)
+        }
+
+        const query = `
+            SELECT fl.*, r.name as restaurant_name,
+                   COUNT(fc.id) as total_claims,
+                   COUNT(fc.id) FILTER (WHERE fc.status = 'pending') as pending_claims,
+                   COUNT(fc.id) FILTER (WHERE fc.status = 'approved') as approved_claims
+            FROM food_listings fl
+            JOIN restaurants r ON fl.restaurant_id = r.id
+            LEFT JOIN food_claims fc ON fl.id = fc.food_listing_id
+            WHERE r.user_id = $1
+            ${statusFilter}
+            GROUP BY fl.id, r.name
+            ORDER BY fl.created_at DESC
+        `;
+
+        const result = await pool.query(query, [user_id]);
+
+        res.json({
+            listings: result.rows
+        });
+
+    } catch (error) {
+        console.error('Get my listings error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+
 // Delete Food Listing (Restaurant users only - own listings)
 router.delete('/:id', authenticateToken, requireRole(['restaurant']), async (req, res) => {
     try {

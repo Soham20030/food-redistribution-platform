@@ -5,14 +5,13 @@ import helmet from 'helmet';
 import dotenv from 'dotenv';
 import pool from './config/database.js';
 import authRoutes from './routes/auth.js';
-import { authenticateToken, requireRole } from './middleware/auth.js'; 
 import restaurantRoutes from './routes/restaurants.js';
 import foodListingRoutes from './routes/foodListings.js';
 import organizationRoutes from './routes/organizations.js';
 import foodClaimRoutes from './routes/foodClaims.js';
 import volunteerRoutes from './routes/volunteers.js';
 import dashboardRoutes from './routes/dashboard.js';
-import { sendEmail } from './config/email.js';
+import { authenticateToken, requireRole } from './middleware/auth.js';
 
 dotenv.config();
 
@@ -21,9 +20,12 @@ const app = express();
 // Security middleware
 app.use(helmet());
 
-// CORS configuration
+// CORS configuration - FIX: Add localhost:5173 for Vite
 app.use(cors({
-    origin: process.env.CLIENT_URL || 'http://localhost:3000',
+    origin: [
+        'http://localhost:3000',  // Create React App default
+        'http://localhost:5173'   // Vite default - ADD THIS LINE
+    ],
     credentials: true
 }));
 
@@ -31,27 +33,14 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Authentication routes
+// Routes
 app.use('/api/auth', authRoutes);
-
-// Restaurants routes
 app.use('/api/restaurants', restaurantRoutes);
-
-// Food Listing routes
 app.use('/api/food-listings', foodListingRoutes);
-
-// Food Organizations routes
 app.use('/api/organizations', organizationRoutes);
-
-// Food Claims routes
 app.use('/api/food-claims', foodClaimRoutes);
-
-// Volunteer routes
 app.use('/api/volunteers', volunteerRoutes);
-
-// Dashboard routes
 app.use('/api/dashboard', dashboardRoutes);
-
 
 // Basic health check route
 app.get('/api/health', (req, res) => {
@@ -79,8 +68,6 @@ app.get('/api/db-test', async (req, res) => {
         });
     }
 });
-
-// ADD THESE PROTECTED TEST ROUTES:
 
 // Test protected route
 app.get('/api/protected', authenticateToken, (req, res) => {

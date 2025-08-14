@@ -5,68 +5,289 @@ import { authenticateToken, requireRole } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// Create/Update Volunteer Profile (Volunteer users only)
+// Get volunteer opportunities (approved claims that need help)
+router.get('/opportunities', authenticateToken, requireRole(['volunteer']), async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT fc.*, fc.id as claim_id,
+                   fl.title, fl.description, fl.food_type, fl.quantity as total_quantity, fl.unit,
+                   fl.expiry_date, fl.pickup_time_start, fl.pickup_time_end,
+                   r.name as restaurant_name, r.address as restaurant_address, 
+                   r.phone as restaurant_phone, r.latitude, r.longitude,
+                   ru.first_name as restaurant_contact_first_name, ru.last_name as restaurant_contact_last_name,
+                   ru.email as restaurant_contact_email,
+                   o.name as organization_name, o.type as organization_type,
+                   o.address as organization_address, o.phone as organization_phone,
+                   ou.first_name as organization_contact_first_name, ou.last_name as organization_contact_last_name,
+                   ou.email as organization_contact_email
+            FROM food_claims fc
+            JOIN food_listings fl ON fc.food_listing_id = fl.id
+            JOIN restaurants r ON fl.restaurant_id = r.id
+            JOIN users ru ON r.user_id = ru.id
+            JOIN organizations o ON fc.organization_id = o.id
+            JOIN users ou ON o.user_id = ou.id
+            WHERE fc.status = 'approved'
+            AND fc.pickup_scheduled_time > NOW()
+            ORDER BY fc.pickup_scheduled_time ASC
+        `);
+
+        res.json({
+            opportunities: result.rows
+        });
+
+    } catch (error) {
+        console.error('Get volunteer opportunities error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Volunteer signs up for an opportunity
+router.post('/signup/:claimId', authenticateToken, requireRole(['volunteer']), async (req, res) => {
+    try {
+        const { claimId } = req.params;
+        const user_id = req.user.id;
+
+        // Get volunteer ID from user ID
+        const volunteerResult = await pool.query(
+            'SELECT id FROM volunteers WHERE user_id = $1',
+            [user_id]
+        );
+
+        if (volunteerResult.rows.length === 0) {
+            return res.status(400).json({ 
+                error: 'Volunteer profile required. Please create your volunteer profile first.' 
+            });
+        }
+
+        const volunteer_id = volunteerResult.rows[0].id;
+
+        // Check if claim exists and is available
+        const claimResult = await pool.query(
+            'SELECT * FROM food_claims WHERE id = $1 AND status = $2',
+            [claimId, 'approved']
+        );
+
+        if (claimResult.rows.length === 0) {
+            return res.status(400).json({ 
+                error: 'This opportunity is no longer available' 
+            });
+        }
+
+        // Check if volunteer already signed up for this claim
+        const existingAssignment = await pool.query(
+            'SELECT id FROM volunteer_assignments WHERE claim_id = $1 AND volunteer_id = $2',
+            [claimId, volunteer_id]
+        );
+
+        if (existingAssignment.rows.length > 0) {
+            return res.status(400).json({ 
+                error: 'You have already signed up for this opportunity' 
+            });
+        }
+
+        // Create volunteer assignment
+        const assignmentResult = await pool.query(`
+            INSERT INTO volunteer_assignments (claim_id, volunteer_id, status, assigned_at)
+            VALUES ($1, $2, 'assigned', CURRENT_TIMESTAMP)
+            RETURNING *
+        `, [claimId, volunteer_id]);
+
+        res.status(201).json({
+            message: 'Successfully signed up for volunteer opportunity',
+            assignment: assignmentResult.rows[0]
+        });
+
+    } catch (error) {
+        console.error('Volunteer signup error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Get volunteer's assignments
+router.get('/my-assignments', authenticateToken, requireRole(['volunteer']), async (req, res) => {
+    try {
+        const user_id = req.user.id;
+
+        const result = await pool.query(`
+            SELECT va.*, fc.claimed_quantity, fc.pickup_scheduled_time, fc.notes,
+                   fl.title as food_title, fl.food_type,
+                   r.name as restaurant_name, r.address as restaurant_address, r.phone as restaurant_phone,
+                   o.name as organization_name
+            FROM volunteer_assignments va
+            JOIN volunteers v ON va.volunteer_id = v.id
+            JOIN food_claims fc ON va.claim_id = fc.id
+            JOIN food_listings fl ON fc.food_listing_id = fl.id
+            JOIN restaurants r ON fl.restaurant_id = r.id
+            JOIN organizations o ON fc.organization_id = o.id
+            WHERE v.user_id = $1
+            ORDER BY va.assigned_at DESC
+        `, [user_id]);
+
+        res.json({
+            assignments: result.rows
+        });
+
+    } catch (error) {
+        console.error('Get volunteer assignments error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Mark assignment as completed
+router.put('/assignments/:id/complete', authenticateToken, requireRole(['volunteer']), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const user_id = req.user.id;
+
+        // Check if assignment belongs to current user
+        const permissionResult = await pool.query(`
+            SELECT va.id 
+            FROM volunteer_assignments va
+            JOIN volunteers v ON va.volunteer_id = v.id
+            WHERE va.id = $1 AND v.user_id = $2
+        `, [id, user_id]);
+
+        if (permissionResult.rows.length === 0) {
+            return res.status(403).json({ error: 'You do not have permission to update this assignment' });
+        }
+
+        // Update assignment status
+        const result = await pool.query(`
+            UPDATE volunteer_assignments 
+            SET status = 'completed', completed_at = CURRENT_TIMESTAMP
+            WHERE id = $1
+            RETURNING *
+        `, [id]);
+
+        res.json({
+            message: 'Assignment marked as completed',
+            assignment: result.rows[0]
+        });
+
+    } catch (error) {
+        console.error('Complete assignment error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Create/Update volunteer profile
 router.post('/profile', authenticateToken, requireRole(['volunteer']), async (req, res) => {
     try {
         const {
-            address,
-            latitude,
-            longitude,
             phone,
             availability,
-            transportation_type,
-            max_distance,
-            skills,
-            emergency_contact_name,
-            emergency_contact_phone
+            transportation,
+            skills
         } = req.body;
 
         const user_id = req.user.id;
 
-        // Check if volunteer profile already exists
+        // Check if profile exists
         const existingProfile = await pool.query(
             'SELECT id FROM volunteers WHERE user_id = $1',
             [user_id]
         );
 
         let result;
-
         if (existingProfile.rows.length > 0) {
             // Update existing profile
             result = await pool.query(`
                 UPDATE volunteers 
-                SET address = $1, latitude = $2, longitude = $3, phone = $4, 
-                    availability = $5, transportation_type = $6, max_distance = $7,
-                    skills = $8, emergency_contact_name = $9, emergency_contact_phone = $10,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE user_id = $11
+                SET phone = $1, availability = $2, transportation = $3, skills = $4, updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = $5
                 RETURNING *
-            `, [address, latitude, longitude, phone, availability, transportation_type, 
-                max_distance, skills, emergency_contact_name, emergency_contact_phone, user_id]);
+            `, [phone, availability, transportation, skills, user_id]);
         } else {
             // Create new profile
             result = await pool.query(`
-                INSERT INTO volunteers (user_id, address, latitude, longitude, phone, 
-                                      availability, transportation_type, max_distance, skills,
-                                      emergency_contact_name, emergency_contact_phone)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                INSERT INTO volunteers (user_id, phone, availability, transportation, skills)
+                VALUES ($1, $2, $3, $4, $5)
                 RETURNING *
-            `, [user_id, address, latitude, longitude, phone, availability, 
-                transportation_type, max_distance, skills, emergency_contact_name, emergency_contact_phone]);
+            `, [user_id, phone, availability, transportation, skills]);
         }
 
         res.json({
-            message: existingProfile.rows.length > 0 ? 'Volunteer profile updated' : 'Volunteer profile created',
+            message: 'Volunteer profile saved successfully',
             volunteer: result.rows[0]
         });
 
     } catch (error) {
-        console.error('Volunteer profile error:', error);
+        console.error('Save volunteer profile error:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
 
-// Get Volunteer Profile (Volunteer users only)
+// Mark assignment as completed
+router.put('/assignments/:id/complete', authenticateToken, requireRole(['volunteer']), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const user_id = req.user.id;
+
+        // Check if assignment belongs to current user
+        const permissionResult = await pool.query(`
+            SELECT va.id, va.claim_id
+            FROM volunteer_assignments va
+            JOIN volunteers v ON va.volunteer_id = v.id
+            WHERE va.id = $1 AND v.user_id = $2
+        `, [id, user_id]);
+
+        if (permissionResult.rows.length === 0) {
+            return res.status(403).json({ error: 'You do not have permission to update this assignment' });
+        }
+
+        const claimId = permissionResult.rows[0].claim_id;
+
+        // Start a transaction to update all related records
+        await pool.query('BEGIN');
+
+        try {
+            // Update assignment status
+            const assignmentResult = await pool.query(`
+                UPDATE volunteer_assignments 
+                SET status = 'completed', completed_at = CURRENT_TIMESTAMP
+                WHERE id = $1
+                RETURNING *
+            `, [id]);
+
+            // Update the corresponding food claim status
+            await pool.query(`
+                UPDATE food_claims 
+                SET status = 'completed', updated_at = CURRENT_TIMESTAMP
+                WHERE id = $1
+            `, [claimId]);
+
+            // Update the food listing status to 'completed'
+            await pool.query(`
+                UPDATE food_listings 
+                SET status = 'completed', updated_at = CURRENT_TIMESTAMP
+                WHERE id = (
+                    SELECT food_listing_id FROM food_claims WHERE id = $1
+                )
+            `, [claimId]);
+
+            await pool.query('COMMIT');
+
+            console.log(`✅ Completed pickup: Assignment ${id}, Claim ${claimId}`); // Debug log
+
+            res.json({
+                message: 'Assignment marked as completed and food listing updated',
+                assignment: assignmentResult.rows[0]
+            });
+
+        } catch (error) {
+            await pool.query('ROLLBACK');
+            throw error;
+        }
+
+    } catch (error) {
+        console.error('Complete assignment error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+
+
+// Get volunteer profile
 router.get('/profile', authenticateToken, requireRole(['volunteer']), async (req, res) => {
     try {
         const user_id = req.user.id;
@@ -86,162 +307,6 @@ router.get('/profile', authenticateToken, requireRole(['volunteer']), async (req
 
     } catch (error) {
         console.error('Get volunteer profile error:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-// Get Available Volunteer Opportunities (Volunteer users only)
-router.get('/opportunities', authenticateToken, requireRole(['volunteer']), async (req, res) => {
-    try {
-        // Get approved food claims that need pickup/delivery
-        const result = await pool.query(`
-            SELECT fc.*, 
-                   fl.title, fl.description, fl.food_type, fl.quantity as total_quantity, fl.unit,
-                   fl.expiry_date, fl.pickup_time_start, fl.pickup_time_end, fl.special_instructions,
-                   r.name as restaurant_name, r.address as restaurant_address, 
-                   r.latitude as restaurant_latitude, r.longitude as restaurant_longitude,
-                   r.phone as restaurant_phone,
-                   o.name as organization_name, o.address as organization_address,
-                   o.latitude as organization_latitude, o.longitude as organization_longitude,
-                   o.phone as organization_phone
-            FROM food_claims fc
-            JOIN food_listings fl ON fc.food_listing_id = fl.id
-            JOIN restaurants r ON fl.restaurant_id = r.id
-            JOIN organizations o ON fc.organization_id = o.id
-            WHERE fc.status = 'approved' 
-            AND fc.pickup_scheduled_time > NOW()
-            AND fc.volunteer_id IS NULL
-            ORDER BY fc.pickup_scheduled_time ASC
-        `);
-
-        res.json({
-            opportunities: result.rows
-        });
-
-    } catch (error) {
-        console.error('Get volunteer opportunities error:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-// Volunteer signs up for an opportunity
-router.post('/signup/:claim_id', authenticateToken, requireRole(['volunteer']), async (req, res) => {
-    try {
-        const { claim_id } = req.params;
-        const { notes } = req.body;
-        const user_id = req.user.id;
-
-        // Get volunteer ID from user ID
-        const volunteerResult = await pool.query(
-            'SELECT id FROM volunteers WHERE user_id = $1',
-            [user_id]
-        );
-
-        if (volunteerResult.rows.length === 0) {
-            return res.status(400).json({ 
-                error: 'Volunteer profile required. Please create your volunteer profile first.' 
-            });
-        }
-
-        const volunteer_id = volunteerResult.rows[0].id;
-
-        // Check if claim exists and is available for volunteers
-        const claimResult = await pool.query(
-            'SELECT * FROM food_claims WHERE id = $1 AND status = $2 AND volunteer_id IS NULL',
-            [claim_id, 'approved']
-        );
-
-        if (claimResult.rows.length === 0) {
-            return res.status(400).json({ 
-                error: 'Volunteer opportunity not found or already taken' 
-            });
-        }
-
-        // Assign volunteer to the claim
-        const result = await pool.query(`
-            UPDATE food_claims 
-            SET volunteer_id = $1, volunteer_notes = $2, updated_at = CURRENT_TIMESTAMP
-            WHERE id = $3
-            RETURNING *
-        `, [volunteer_id, notes, claim_id]);
-
-        // Get full details of the assignment
-        const assignmentResult = await pool.query(`
-            SELECT fc.*, 
-                   fl.title, fl.description, fl.food_type, fl.pickup_time_start, fl.pickup_time_end,
-                   r.name as restaurant_name, r.address as restaurant_address, r.phone as restaurant_phone,
-                   o.name as organization_name, o.address as organization_address, o.phone as organization_phone
-            FROM food_claims fc
-            JOIN food_listings fl ON fc.food_listing_id = fl.id
-            JOIN restaurants r ON fl.restaurant_id = r.id
-            JOIN organizations o ON fc.organization_id = o.id
-            WHERE fc.id = $1
-        `, [claim_id]);
-
-        res.json({
-            message: 'Successfully signed up for volunteer opportunity',
-            assignment: assignmentResult.rows[0]
-        });
-
-    } catch (error) {
-        console.error('Volunteer signup error:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-// Get volunteer's assignments (Volunteer users only)
-router.get('/my-assignments', authenticateToken, requireRole(['volunteer']), async (req, res) => {
-    try {
-        const user_id = req.user.id;
-
-        const result = await pool.query(`
-            SELECT fc.*, 
-                   fl.title, fl.description, fl.food_type, fl.quantity as total_quantity, fl.unit,
-                   fl.expiry_date, fl.pickup_time_start, fl.pickup_time_end, fl.special_instructions,
-                   r.name as restaurant_name, r.address as restaurant_address, 
-                   r.latitude as restaurant_latitude, r.longitude as restaurant_longitude,
-                   r.phone as restaurant_phone,
-                   o.name as organization_name, o.address as organization_address,
-                   o.latitude as organization_latitude, o.longitude as organization_longitude,
-                   o.phone as organization_phone
-            FROM food_claims fc
-            JOIN volunteers v ON fc.volunteer_id = v.id
-            JOIN food_listings fl ON fc.food_listing_id = fl.id
-            JOIN restaurants r ON fl.restaurant_id = r.id
-            JOIN organizations o ON fc.organization_id = o.id
-            WHERE v.user_id = $1
-            ORDER BY fc.pickup_scheduled_time ASC
-        `, [user_id]);
-
-        res.json({
-            assignments: result.rows
-        });
-
-    } catch (error) {
-        console.error('Get volunteer assignments error:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-// Get All Active Volunteers (Public - for coordination)
-router.get('/all', async (req, res) => {
-    try {
-        const result = await pool.query(`
-            SELECT v.id, v.address, v.latitude, v.longitude, v.transportation_type,
-                   v.max_distance, v.availability, v.skills, v.created_at,
-                   u.first_name, u.last_name, u.email, u.phone
-            FROM volunteers v
-            JOIN users u ON v.user_id = u.id
-            WHERE v.is_active = true
-            ORDER BY v.created_at DESC
-        `);
-
-        res.json({
-            volunteers: result.rows
-        });
-
-    } catch (error) {
-        console.error('Get all volunteers error:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });

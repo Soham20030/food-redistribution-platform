@@ -1,0 +1,22 @@
+.app {
+  text-align: center;
+}
+
+.app-logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+
+.app-logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+
+.app-logo.react:hover {
+  filter: drop-shadow(0 0 2em #61dafbaa);
+}
+
+.read-the-docs {
+  color: #888;
+}
